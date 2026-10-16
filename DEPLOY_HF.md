@@ -48,17 +48,13 @@ Then set Vercel env:
 
 ## Before deploy — database
 
-Hugging Face Spaces **do not** host Postgres. You need a cloud DB that already has:
+Hugging Face Spaces **do not** host Postgres. Use the Supabase project already created:
 
-1. Schema applied (`backend/db/schema.sql` + migrations)
-2. Documents / chunks / **BGE 384-d embeddings** (or you’ll re-embed after cutover)
+- See **[DEPLOY_SUPABASE.md](./DEPLOY_SUPABASE.md)** (`srmap-rag` / `lunscpeozscmgpwcprgs`)
+- Schema is applied (BGE **384-d**); you still need to **load data** from local Docker
+- Put the same `DATABASE_URL` in Space secrets
 
-Options:
-
-- Export/restore from local Docker Postgres → Supabase/Neon with `vector` enabled
-- Or point `DATABASE_URL` at a reachable host and re-run ingest there
-
-Until the hosted DB is ready, the Space will boot but `/health` will show `degraded` and chat will fail.
+Until data is loaded, the Space will boot but chat retrieval will be empty / degraded.
 
 ## Deploy steps (when you say proceed)
 
