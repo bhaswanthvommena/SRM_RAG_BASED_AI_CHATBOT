@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -14,21 +16,50 @@ from app.generation import generate_answer, is_greeting
 from app.retrieval import build_context, hybrid_search, rewrite_query
 from app.schemas import ChatRequest, ChatResponse, Citation, FeedbackRequest, HealthResponse
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Warm local embedder (BGE) so the first chat request is not a cold model load.
+    provider = (settings.embedding_provider or "").strip().lower()
+    if provider == "local":
+        try:
+            from app.embeddings import get_embedder
+
+            get_embedder()
+            logger.info("Local embedder warmed up")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Embedder warmup failed: %s", exc)
+    yield
+
 
 app = FastAPI(
     title="SRM AP RAG Chatbot",
     version="0.1.0",
     description="RAG assistant over srmap.edu.in",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list or ["*"],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/")
+def root() -> dict[str, Any]:
+    return {
+        "service": "srmap-rag-api",
+        "docs": "/docs",
+        "health": "/health",
+        "chat_stream": "/chat/stream",
+    }
 
 
 @app.get("/health", response_model=HealthResponse)

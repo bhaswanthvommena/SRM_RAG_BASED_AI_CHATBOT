@@ -1,8 +1,21 @@
+---
+title: SRM AP RAG API
+emoji: 🎓
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+short_description: FastAPI RAG backend for SRM University-AP campus chat
+---
+
 # SRM University-AP RAG Chatbot
 
 Standalone web chat app that answers questions about [srmap.edu.in](https://www.srmap.edu.in/) using retrieval-augmented generation (RAG).
 
 **Stack:** Python ingestion + FastAPI backend + Next.js frontend + Postgres/pgvector + Google Gemini.
+
+**Deploy:** Frontend on Vercel · Backend Docker on Hugging Face Spaces · DB on hosted Postgres/pgvector. See [DEPLOY_HF.md](./DEPLOY_HF.md).
 
 ## Quick start
 

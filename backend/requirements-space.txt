@@ -1,0 +1,14 @@
+# Hugging Face Space / Docker — torch is installed separately (CPU wheel)
+fastapi>=0.115
+uvicorn[standard]>=0.30
+sse-starlette>=2.1
+python-dotenv>=1.0
+pydantic>=2.8
+pydantic-settings>=2.4
+psycopg[binary,pool]>=3.2
+pgvector>=0.3
+google-genai>=1.0
+httpx>=0.27
+orjson>=3.10
+tenacity>=8.5
+sentence-transformers>=3.0
