@@ -1,0 +1,62 @@
+[
+  {
+    "id": "fees-btech",
+    "question": "What is the B.Tech tuition fee and what scholarships are available?",
+    "intent": "fees",
+    "must_cite_url_contains": ["/fees", "/scholarship", "/admission"]
+  },
+  {
+    "id": "admission-srmjeee",
+    "question": "How do I apply for undergraduate B.Tech admission through SRMJEEE?",
+    "intent": "admission",
+    "must_cite_url_contains": ["/admission"]
+  },
+  {
+    "id": "hostel",
+    "question": "What hostel facilities are available on campus?",
+    "intent": "general",
+    "must_cite_url_contains": ["/hostel"]
+  },
+  {
+    "id": "programme-cse",
+    "question": "What is covered in the B.Tech Computer Science and Engineering programme?",
+    "intent": "programme",
+    "must_cite_url_contains": ["/programme", "computer"]
+  },
+  {
+    "id": "placement-stats",
+    "question": "What are the latest placement statistics and highest package?",
+    "intent": "placement",
+    "must_cite_url_contains": ["placement"]
+  },
+  {
+    "id": "contact",
+    "question": "What is the university helpline number and email?",
+    "intent": "general",
+    "expected_answer_contains": ["080", "info@srmap"]
+  },
+  {
+    "id": "faculty-lookup",
+    "question": "Who are faculty members in Computer Science?",
+    "intent": "faculty",
+    "must_cite_url_contains": ["/faculty"]
+  },
+  {
+    "id": "international",
+    "question": "How do international students apply for admission?",
+    "intent": "admission",
+    "must_cite_url_contains": ["international"]
+  },
+  {
+    "id": "psb-programmes",
+    "question": "What programmes does Paari School of Business offer?",
+    "intent": "programme",
+    "must_cite_url_contains": ["/programme", "psb", "business"]
+  },
+  {
+    "id": "stale-fees-guard",
+    "question": "Are there 2018 scholarship fee details still listed? Should I trust them?",
+    "intent": "fees",
+    "notes": "Model should warn about stale content when citing old pages"
+  }
+]

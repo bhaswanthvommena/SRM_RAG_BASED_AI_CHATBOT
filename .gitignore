@@ -1,0 +1,47 @@
+# Env / secrets
+.env
+.env.local
+.env.*.local
+
+# Data caches (large — regenerate via crawl/parse)
+data/raw/
+data/pdfs/
+data/parsed/
+data/manifest.jsonl
+data/*.db
+!data/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+
+# Node / Next.js
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/dist/
+*.tsbuildinfo
+next-env.d.ts
+/package-lock.json
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
