@@ -1,5 +1,4 @@
-# Hugging Face Spaces — Docker SDK (CPU)
-# App must listen on port 7860.
+# CPU image for Cloud Run (PORT, default 8080) and Hugging Face Spaces (7860).
 FROM python:3.11-slim-bookworm
 
 RUN useradd -m -u 1000 user
@@ -37,13 +36,15 @@ COPY --chown=user backend/ $HOME/app/backend/
 USER user
 
 ENV PYTHONPATH=$HOME/app/backend
+# Cloud Run overrides PORT. Hugging Face Spaces do not, so keep 7860 as the default.
+ENV PORT=7860
 
-# Prefetch BGE so the first chat request is faster after Space boot
+# Prefetch BGE so the first chat request is faster after boot
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')"
 
 EXPOSE 7860
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:7860/health || exit 1
+  CMD curl -fsS "http://127.0.0.1:${PORT}/health" || exit 1
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["sh", "-c", "python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]

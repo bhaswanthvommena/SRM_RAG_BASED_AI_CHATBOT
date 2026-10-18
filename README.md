@@ -15,7 +15,7 @@ Standalone web chat app that answers questions about [srmap.edu.in](https://www.
 
 **Stack:** Python ingestion + FastAPI backend + Next.js frontend + Postgres/pgvector + Google Gemini.
 
-**Deploy:** Frontend on Vercel · Backend Docker on Hugging Face Spaces · DB on hosted Postgres/pgvector. See [DEPLOY_HF.md](./DEPLOY_HF.md).
+**Deploy:** Frontend on Vercel · Backend on Cloud Run · DB on Supabase. See [DEPLOY_CLOUD_RUN.md](./DEPLOY_CLOUD_RUN.md).
 
 ## Quick start
 
