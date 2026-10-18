@@ -1,135 +1,158 @@
----
-title: SRM AP RAG API
-emoji: 🎓
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-app_port: 7860
-pinned: false
-short_description: FastAPI RAG backend for SRM University-AP campus chat
----
+# SRM University-AP Campus Assistant
 
-# SRM University-AP RAG Chatbot
+A standalone chat app that answers questions about [SRM University-AP](https://www.srmap.edu.in/) from the university’s own pages. Answers are retrieved from an indexed copy of the site, written with citations, and streamed into a ChatGPT-style interface.
 
-Standalone web chat app that answers questions about [srmap.edu.in](https://www.srmap.edu.in/) using retrieval-augmented generation (RAG).
+**Live demo:** [srm-rag-based-ai-chatbot.vercel.app](https://srm-rag-based-ai-chatbot.vercel.app/)
 
-**Stack:** Python ingestion + FastAPI backend + Next.js frontend + Postgres/pgvector + Google Gemini.
+Ask about admissions, tuition, scholarships, programmes, faculty, hostels, or placements. Each reply links the numbered citations back to the official source.
 
-**Deploy:** Frontend on Vercel · Backend on Cloud Run · DB on Supabase. See [DEPLOY_CLOUD_RUN.md](./DEPLOY_CLOUD_RUN.md).
+## What it does
 
-## Quick start
+- Crawls public pages and priority PDFs from srmap.edu.in
+- Embeds the text locally and stores it in Postgres with pgvector
+- Retrieves with a hybrid of vector search and full-text search
+- Streams a grounded answer from Gemini, with inline citations
+- Skips retrieval for greetings, and keeps fee and admission answers dated
 
-### 1. Environment
+The public index currently holds **3,635 documents** and **21,466 chunks**, embedded with `BAAI/bge-small-en-v1.5` (384 dimensions).
+
+## Architecture
+
+```mermaid
+flowchart LR
+  site["srmap.edu.in"] --> crawl["Discover, fetch, parse"]
+  crawl --> chunks["Chunk and embed"]
+  chunks --> db["Postgres + pgvector"]
+  user["Question"] --> api["FastAPI"]
+  api --> db
+  api --> gemini["Gemini"]
+  gemini --> ui["Next.js chat"]
+  db --> ui
+```
+
+1. **Discover** URLs from the WordPress REST API and Yoast sitemaps.
+2. **Fetch and parse** HTML and priority PDFs. Crawl and embedding are separate, so a recrawl does not wipe the index.
+3. **Embed** chunks with local BGE-small on CPU. Gemini embeddings (768-d) are an alternate index, never mixed with BGE.
+4. **Retrieve** with pgvector, Postgres full-text search, and reciprocal rank fusion.
+5. **Answer** with Gemini, streamed over server-sent events. Citation chips open the real source URL.
+
+## Stack
+
+| Layer | Choice |
+| --- | --- |
+| Frontend | Next.js, Tailwind, react-markdown |
+| API | FastAPI, SSE streaming |
+| Chat model | Gemini |
+| Embeddings | BAAI/bge-small-en-v1.5 on CPU |
+| Database | Postgres 16 + pgvector |
+| Production | Vercel · Cloud Run · Supabase |
+
+## Corpus
+
+Indexed: pages, programmes, faculty, staff, leadership, news, press releases, placements, and priority PDFs such as admission and scholarship booklets.
+
+Not indexed: the publications archive, patents, projects, and taxonomy archives. Some programme pages are thin Elementor shells, and a few PDFs are image-only.
+
+## Run locally
+
+### 1. Configure
 
 ```bash
 cp .env.example .env
-# Add GEMINI_API_KEY from https://aistudio.google.com/apikey
 ```
 
-### 2. Database
+Set `GEMINI_CHAT_API_KEY` from [Google AI Studio](https://aistudio.google.com/apikey). For the local BGE index used in production:
+
+```env
+EMBEDDING_PROVIDER=local
+EMBEDDING_DIMS=384
+```
+
+### 2. Start Postgres
 
 ```bash
 docker compose up -d
 ```
 
-### 3. Python deps
-
-From the repo root:
+### 3. Install Python
 
 ```bash
 python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-# source .venv/bin/activate
-
-pip install -r ingestion/requirements.txt -r backend/requirements.txt
 ```
 
-Set `PYTHONPATH` to the repo root when running modules:
+Windows:
+
+```powershell
+.venv\Scripts\activate
+$env:PYTHONPATH = (Get-Location).Path
+```
+
+macOS or Linux:
 
 ```bash
-# Windows PowerShell
-$env:PYTHONPATH = (Get-Location).Path
-
-# bash
+source .venv/bin/activate
 export PYTHONPATH=$PWD
 ```
 
-### 4. Ingest the website
-
 ```bash
-# Discover all MVP URLs (REST + sitemaps) → data/manifest.jsonl
-python -m ingestion.cli discover
-
-# Fetch a small pilot first (recommended)
-python -m ingestion.cli fetch --limit 50 --doc-type programme --doc-type page
-
-# Parse HTML → data/parsed/
-python -m ingestion.cli parse --limit 50
-
-# Optional: priority PDFs
-python -m ingestion.cli pdfs --limit 20
-
-# Persist documents + text chunks to Postgres (NO embedding API — safe anytime)
-python -m ingestion.cli persist
-
-# Check crawl / embed-queue counts
-python -m ingestion.cli status
-
-# --- API keys (prefer separate accounts to split quota) ---
-# GEMINI_CHAT_API_KEY=...        # chat / rewrite
-# GEMINI_EMBEDDING_API_KEY=...   # embed-worker + query embeddings
-
-# --- Local embeddings (BAAI/bge-small-en-v1.5, 384-d) ---
-python -m ingestion.cli prepare-local-index
-# .env: EMBEDDING_PROVIDER=local, EMBEDDING_DIMS=384
-python -m ingestion.cli embed-worker --batch-size 8 --max-per-run 500
-
-# --- Hosted Gemini embeddings (768-d) ---
-python -m ingestion.cli prepare-gemini-index
-# .env: EMBEDDING_PROVIDER=gemini, EMBEDDING_DIMS=768, GEMINI_EMBEDDING_API_KEY=...
-python -m ingestion.cli embed-worker --batch-size 8 --max-per-run 500
+pip install -r ingestion/requirements.txt -r backend/requirements.txt
 ```
 
-Crawl and embedding are **decoupled**. Never mix Gemini (768-d) and local BGE (384-d) in the same index — use `prepare-local-index` / `prepare-gemini-index` when switching.
-
-### 5. Run API + UI
+### 4. Build the index
 
 ```bash
-# Terminal A — API
+python -m ingestion.cli discover
+python -m ingestion.cli fetch
+python -m ingestion.cli parse
+python -m ingestion.cli pdfs
+python -m ingestion.cli persist
+python -m ingestion.cli prepare-local-index
+python -m ingestion.cli embed-worker --batch-size 16 --max-per-run 10000
+python -m ingestion.cli status
+```
+
+`fetch --limit` and `parse --limit` are useful for a small trial before a full crawl. `persist` writes documents and chunks only. It does not call an embedding API.
+
+Switching embedding models requires a cutover, not a mix:
+
+```bash
+python -m ingestion.cli prepare-local-index    # 384-d BGE
+python -m ingestion.cli prepare-gemini-index   # 768-d Gemini
+```
+
+Those commands clear incompatible vectors and requeue chunks. They do not delete document text.
+
+### 5. Run the app
+
+```bash
 cd backend
 uvicorn app.main:app --reload --port 8000
+```
 
-# Terminal B — UI
+```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000). The UI reads `NEXT_PUBLIC_API_URL` (default `http://localhost:8000`).
 
 ## Project layout
 
 ```
-ingestion/     discover → fetch → parse → pdfs → persist | embed-worker
-backend/       FastAPI hybrid retrieval + streaming chat
-frontend/      Next.js chat UI with citations
-eval/          Golden questions
-data/          Raw HTML cache, parsed JSON, PDFs (gitignored)
+ingestion/     discover, fetch, parse, chunk, embed
+backend/       FastAPI retrieval and streaming chat
+frontend/      Next.js chat UI
+eval/          golden questions
+data/          HTML cache, parsed JSON, PDFs (gitignored)
 ```
 
-## MVP corpus
+## Deploy
 
-Indexed: pages, programmes, faculty, staff, leadership, news, press releases, placements, and priority PDFs.
+The public app is the Next.js UI on Vercel, this API on Cloud Run, and the database on Supabase. Cloud Run serves both FastAPI and the local embedding model, so query vectors stay in the same space as the index.
 
-Deferred: publications (12.9k), patents, projects, taxonomy archives.
+See [DEPLOY_CLOUD_RUN.md](./DEPLOY_CLOUD_RUN.md), [DEPLOY_SUPABASE.md](./DEPLOY_SUPABASE.md), and [DEPLOY.md](./DEPLOY.md).
 
-## Notes
+## Limits
 
-- Polite crawl: ~1.5 req/s, browser-like User-Agent, gzip HTML cache.
-- Hybrid retrieval: pgvector + Postgres full-text + reciprocal rank fusion + intent boosts.
-- Answers include source citations and “as of” dates for fees/admissions content.
-- **Content quirks on srmap.edu.in:** many `programme` CPT pages are Elementor shells with little body text (details live on school pages/PDFs). Faculty/news pages extract well. Some PDFs (hostel floor plans) are image-only and need OCR later.
-- Start Docker Desktop before `docker compose up -d`.
-- `GEMINI_API_KEY` is only required for `embed-worker` and chat — not for crawl/persist.
+Answers are only as current as the last crawl. Fees, deadlines, and seat rules should be checked on srmap.edu.in. The assistant does not invent a source when retrieval is empty, and it is not a substitute for the admissions office.
