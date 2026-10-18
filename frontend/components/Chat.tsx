@@ -188,7 +188,9 @@ export function Chat() {
   const [busy, setBusy] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const answerEndRef = useRef<HTMLDivElement>(null);
+  const [threadHeight, setThreadHeight] = useState(0);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const turnAnchorRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -197,9 +199,30 @@ export function Chat() {
   }, []);
 
   useEffect(() => {
-    if (!busy) return;
-    answerEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [messages, busy]);
+    const el = scrollerRef.current;
+    if (!el) return;
+    const measure = () => setThreadHeight(el.clientHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const lastUserId = (() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === "user") return messages[i].id;
+    }
+    return undefined;
+  })();
+
+  // Pin the new question to the top once. Do not follow the growing answer.
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    const anchor = turnAnchorRef.current;
+    if (!scroller || !anchor || !lastUserId) return;
+    const delta = anchor.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+    scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: "smooth" });
+  }, [lastUserId]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -270,6 +293,11 @@ export function Chat() {
 
   const showEmpty = messages.length === 0;
   const chips = suggestions.length ? suggestions.slice(0, 4) : DEFAULT_SUGGESTIONS;
+  const turns: { user: ChatMessage; assistant?: ChatMessage }[] = [];
+  for (const m of messages) {
+    if (m.role === "user") turns.push({ user: m });
+    else if (turns.length) turns[turns.length - 1].assistant = m;
+  }
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -292,7 +320,7 @@ export function Chat() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollerRef} className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-chat px-4 py-6 sm:px-6 sm:py-8">
           {showEmpty && (
             <div className="animate-fade-up flex min-h-[min(62vh,560px)] flex-col items-center justify-center text-center">
@@ -327,51 +355,57 @@ export function Chat() {
           )}
 
           <div className="space-y-6">
-            {messages.map((m, idx) => {
-              const isLast = idx === messages.length - 1;
-              if (m.role === "user") {
-                return (
-                  <div key={m.id} className="animate-fade-up flex justify-end">
+            {turns.map((turn, turnIdx) => {
+              const isLastTurn = turnIdx === turns.length - 1;
+              const assistant = turn.assistant;
+              return (
+                <div
+                  key={turn.user.id}
+                  ref={isLastTurn ? turnAnchorRef : undefined}
+                  className="space-y-6"
+                  style={isLastTurn && threadHeight ? { minHeight: threadHeight } : undefined}
+                >
+                  <div className="animate-fade-up flex justify-end">
                     <div className="max-w-[85%] rounded-2xl rounded-br-md bg-brand-700 px-4 py-3 text-[15px] leading-relaxed text-white shadow-sm sm:max-w-[75%]">
-                      {m.content}
+                      {turn.user.content}
                     </div>
                   </div>
-                );
-              }
-
-              return (
-                <div key={m.id} className="animate-fade-up flex gap-3">
-                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                    <Image
-                      src="/brand/srmap-icon.png"
-                      alt=""
-                      width={22}
-                      height={22}
-                      className="h-5 w-5 object-contain"
-                    />
-                  </div>
-                  <div className="min-w-0 flex-1 pt-0.5">
-                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                      Campus Assistant
-                    </p>
-                    {!m.content && busy && isLast ? (
-                      <div className="flex items-center gap-1.5 py-2">
-                        <span className="typing-dot h-2 w-2 rounded-full bg-slate-400" />
-                        <span className="typing-dot h-2 w-2 rounded-full bg-slate-400" />
-                        <span className="typing-dot h-2 w-2 rounded-full bg-slate-400" />
+                  {assistant && (
+                    <div className="animate-fade-up flex gap-3">
+                      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                        <Image
+                          src="/brand/srmap-icon.png"
+                          alt=""
+                          width={22}
+                          height={22}
+                          className="h-5 w-5 object-contain"
+                        />
                       </div>
-                    ) : (
-                      <div className="prose-answer">{renderAnswer(m.content, m.citations)}</div>
-                    )}
-                    {isLast && <div ref={answerEndRef} />}
-                    {m.content && m.citations && m.citations.length > 0 && (
-                      <SourcesPanel
-                        messageId={m.id}
-                        citations={m.citations}
-                        conversationId={conversationId}
-                      />
-                    )}
-                  </div>
+                      <div className="min-w-0 flex-1 pt-0.5">
+                        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                          Campus Assistant
+                        </p>
+                        {!assistant.content && busy && isLastTurn ? (
+                          <div className="flex items-center gap-1.5 py-2">
+                            <span className="typing-dot h-2 w-2 rounded-full bg-slate-400" />
+                            <span className="typing-dot h-2 w-2 rounded-full bg-slate-400" />
+                            <span className="typing-dot h-2 w-2 rounded-full bg-slate-400" />
+                          </div>
+                        ) : (
+                          <div className="prose-answer">
+                            {renderAnswer(assistant.content, assistant.citations)}
+                          </div>
+                        )}
+                        {assistant.content && assistant.citations && assistant.citations.length > 0 && (
+                          <SourcesPanel
+                            messageId={assistant.id}
+                            citations={assistant.citations}
+                            conversationId={conversationId}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
