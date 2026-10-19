@@ -1,74 +1,46 @@
-# Hugging Face Spaces (Docker) — backend deploy checklist
+# Hugging Face Spaces
 
-Prepared and ready. **Do not deploy until you say go.**
+The public API runs on Cloud Run. See [DEPLOY_CLOUD_RUN.md](./DEPLOY_CLOUD_RUN.md). This page is only for running the same image on a Hugging Face Docker Space.
 
-## Architecture
+A Space does not include Postgres. Point `DATABASE_URL` at Supabase or another hosted Postgres with pgvector, using the setup in [DEPLOY_SUPABASE.md](./DEPLOY_SUPABASE.md).
 
-| Piece | Host |
-|--------|------|
-| Next.js UI | Vercel (done) |
-| FastAPI + local BGE | Hugging Face Space (Docker, `cpu-basic`) |
-| Postgres + pgvector | Hosted DB (Supabase / Neon / other) — **required** |
-| Gemini chat | Google AI Studio key (Space secret) |
+## Image
 
-Space URL shape after deploy:
+The [Dockerfile](./Dockerfile) installs CPU torch, prefetches `BAAI/bge-small-en-v1.5`, and listens on `PORT`. The default is `7860`, which Spaces expect. Cloud Run overrides `PORT`.
 
-`https://bhaswanthv-srm-rag-api.hf.space`  
-(exact name chosen at create time)
+Python packages for the image are in [backend/requirements-space.txt](./backend/requirements-space.txt). Torch is installed separately so the CPU wheel is used.
 
-Then set Vercel env:
+## Space settings
 
-`NEXT_PUBLIC_API_URL=https://<your-space>.hf.space`
+Secrets:
 
-## Repo files ready
+| Name | Value |
+| --- | --- |
+| `DATABASE_URL` | Transaction pooler URI for the hosted database |
+| `GEMINI_CHAT_API_KEY` | Chat key from Google AI Studio |
+| `CORS_ORIGINS` | The Vercel origin, if you use a custom domain |
 
-- `Dockerfile` — CPU torch, prefetches `BAAI/bge-small-en-v1.5`, listens on **7860**
-- `.dockerignore`
-- `backend/requirements-space.txt`
-- README YAML frontmatter (`sdk: docker`, `app_port: 7860`)
-- API warmup for local embedder + `/` + `/health`
+Variables:
 
-## Secrets to set on the Space (Settings → Secrets)
-
-| Secret | Value |
-|--------|--------|
-| `DATABASE_URL` | Hosted Postgres URL with `pgvector` (must already contain your crawled data / embeddings) |
-| `GEMINI_CHAT_API_KEY` | Chat account key |
-| `GEMINI_EMBEDDING_API_KEY` | Optional if using Gemini embeds; not needed while on local BGE |
-| `CORS_ORIGINS` | Your Vercel URL, e.g. `https://your-app.vercel.app` |
-
-## Variables (non-secret) on the Space
-
-| Variable | Suggested value |
-|----------|-----------------|
+| Name | Value |
+| --- | --- |
 | `EMBEDDING_PROVIDER` | `local` |
 | `LOCAL_EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` |
 | `EMBEDDING_DIMS` | `384` |
 | `GEMINI_CHAT_MODEL` | `gemini-3.5-flash-lite` |
+| `TRUSTED_PROXY_HOPS` | `0`, unless you know the Space proxy appends the client IP |
 
-## Before deploy — database
+`GEMINI_EMBEDDING_API_KEY` is unused while the index stays on local BGE.
 
-Hugging Face Spaces **do not** host Postgres. Use the Supabase project already created:
+## Deploy
 
-- See **[DEPLOY_SUPABASE.md](./DEPLOY_SUPABASE.md)** (`srmap-rag` / `lunscpeozscmgpwcprgs`)
-- Schema is applied (BGE **384-d**); you still need to **load data** from local Docker
-- Put the same `DATABASE_URL` in Space secrets
+1. Create a Docker Space with enough CPU memory for torch and BGE-small. A free static Space cannot run this API.
+2. Set the secrets and variables above. Do not put them in the repo.
+3. Push the image or connect the GitHub repo.
+4. Wait for the first build. It downloads torch and the embedding model.
+5. Check `GET /health/live`, then `GET /health/ready`.
+6. Set `NEXT_PUBLIC_API_URL` on Vercel to the Space URL and redeploy the frontend.
 
-Until data is loaded, the Space will boot but chat retrieval will be empty / degraded.
+An idle Space sleeps. The first request after sleep is slow even though the model is already in the image.
 
-## Deploy steps (when you say proceed)
-
-1. Confirm HF login (`hf auth whoami` / plugin)
-2. Create Docker Space (private or public), hardware `cpu-basic`
-3. Set secrets + variables above
-4. Push this GitHub repo to the Space (or connect GitHub → Space)
-5. Wait for build (first build downloads torch + BGE — several minutes)
-6. Smoke test: `GET /health`, then one chat from Vercel
-7. Set `NEXT_PUBLIC_API_URL` on Vercel and redeploy frontend
-
-## Notes
-
-- Free Spaces **sleep** when idle; first request after sleep can take 1–2+ minutes (model already in image, but process cold-starts).
-- `cpu-basic` is enough for BGE-small query embedding + FastAPI.
-- Do **not** commit `.env` or real API keys.
-- Local `docker compose` Postgres remains for development only.
+Do not commit `.env`, API keys, or a database dump.

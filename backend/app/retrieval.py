@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -86,7 +87,19 @@ def rewrite_query(question: str, history: list[dict[str, str]], settings: Settin
         rewritten = (resp.text or question).strip().strip('"')
         intent = detect_intent(rewritten + " " + question)
         return rewritten or question, intent
-    except Exception:
+    except Exception as exc:
+        from app.observe import log_event
+
+        log_event(
+            "query_rewrite",
+            labels={
+                "route": "rewrite",
+                "status_class": "5xx",
+                "error_category": "generation_failed",
+                "intent": intent,
+            },
+            error_type=type(exc).__name__,
+        )
         return question, intent
 
 
@@ -99,7 +112,11 @@ def hybrid_search(
 ) -> list[RetrievedChunk]:
     settings = settings or get_settings()
     embedder = get_embedder()
+    embed_started = time.perf_counter()
     qvec = embedder.embed_query(query)
+    from app.observe import record_timing
+
+    record_timing("embed_ms", (time.perf_counter() - embed_started) * 1000)
     model_id = active_model_id(settings)
 
     with get_conn(settings) as conn:

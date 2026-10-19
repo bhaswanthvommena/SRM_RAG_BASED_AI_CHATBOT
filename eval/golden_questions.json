@@ -58,5 +58,15 @@
     "question": "Are there 2018 scholarship fee details still listed? Should I trust them?",
     "intent": "fees",
     "notes": "Model should warn about stale content when citing old pages"
+  },
+  {
+    "id": "greeting-hi",
+    "question": "hi",
+    "expect": "greeting"
+  },
+  {
+    "id": "not-found-empty",
+    "question": "What is the campus zip code for a building that does not exist?",
+    "expect": "not_found"
   }
 ]

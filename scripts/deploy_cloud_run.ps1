@@ -68,11 +68,14 @@ function YamlQuote([string]$Value) {
     "EMBEDDING_DIMS: '384'",
     "LOCAL_EMBEDDING_MODEL: 'BAAI/bge-small-en-v1.5'",
     "GEMINI_CHAT_MODEL: 'gemini-3.5-flash-lite'",
-    "CORS_ORIGINS: $(YamlQuote $cors)"
+    "CORS_ORIGINS: $(YamlQuote $cors)",
+    "TRUSTED_PROXY_HOPS: '1'"
 ) | Set-Content -Path $yaml -Encoding ascii
 
 Write-Host "Deploying $Service to $Region in project $Project"
 Write-Host "DB host only: $(([uri]$db).Host)"
+Write-Host "Instance caps are initial safety settings, not a billing guarantee."
+Write-Host "Create a Cloud Billing budget alert separately. This script does not create one."
 
 try {
     gcloud run deploy $Service `
@@ -82,7 +85,10 @@ try {
         --allow-unauthenticated `
         --memory 2Gi `
         --cpu 1 `
-        --timeout 300 `
+        --timeout 120 `
+        --concurrency 4 `
+        --max-instances 2 `
+        --min-instances 0 `
         --cpu-boost `
         --port 8080 `
         --quiet `

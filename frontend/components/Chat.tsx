@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { CitationCard } from "@/components/CitationCard";
 import {
   ChatMessage,
+  ChatStreamError,
   Citation,
   fetchSuggestions,
   sendFeedback,
@@ -269,17 +270,20 @@ export function Chat() {
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Something went wrong";
+      const streamed = err instanceof ChatStreamError;
       setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId
-            ? {
-                ...m,
-                content:
-                  m.content ||
-                  `Sorry — ${msg}. Is the API running on ${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}?`,
-              }
-            : m
-        )
+        prev.map((m) => {
+          if (m.id !== assistantId) return m;
+          if (streamed) {
+            return { ...m, content: m.content ? `${m.content}\n\n${msg}` : msg };
+          }
+          return {
+            ...m,
+            content:
+              m.content ||
+              `Sorry — ${msg}. Is the API running on ${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}?`,
+          };
+        })
       );
     } finally {
       setBusy(false);

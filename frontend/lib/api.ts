@@ -41,12 +41,25 @@ export async function sendFeedback(payload: {
   });
 }
 
+export class ChatStreamError extends Error {
+  requestId?: string;
+  category?: string;
+
+  constructor(message: string, requestId?: string, category?: string) {
+    super(message);
+    this.name = "ChatStreamError";
+    this.requestId = requestId;
+    this.category = category;
+  }
+}
+
 export async function streamChat(opts: {
   message: string;
   history: { role: "user" | "assistant"; content: string }[];
   conversationId?: string | null;
   onMeta: (meta: {
     conversation_id: string;
+    request_id?: string;
     intent?: string;
     rewritten_query?: string;
     citations: Citation[];
@@ -96,7 +109,13 @@ export async function streamChat(opts: {
         const data = JSON.parse(raw);
         if (eventName === "meta") opts.onMeta(data);
         else if (eventName === "token") opts.onToken(data.text || "");
-        else if (eventName === "done") opts.onDone();
+        else if (eventName === "error") {
+          throw new ChatStreamError(
+            data.message || "Something went wrong.",
+            data.request_id,
+            data.error
+          );
+        } else if (eventName === "done") opts.onDone();
       } catch {
         // ignore malformed chunks
       }

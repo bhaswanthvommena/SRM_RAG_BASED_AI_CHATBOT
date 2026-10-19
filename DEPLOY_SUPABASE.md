@@ -1,85 +1,64 @@
-# Supabase database setup
+# Supabase database
 
-## Project
+Production data lives in Postgres with pgvector. Supabase is the host used for the public app. Any Postgres 16 instance with the `vector` extension can run the same schema.
 
-| Field | Value |
-|--------|--------|
-| Name | `srmap-rag` |
-| Ref | `lunscpeozscmgpwcprgs` |
-| Region | `ap-south-1` (Mumbai) |
-| Dashboard | https://supabase.com/dashboard/project/lunscpeozscmgpwcprgs |
-| API URL | https://lunscpeozscmgpwcprgs.supabase.co |
-| DB host | `db.lunscpeozscmgpwcprgs.supabase.co` |
+## Create the project
 
-## Schema (already applied)
+1. Create a Supabase project in the region closest to Cloud Run. The public API runs in `asia-south1`.
+2. Apply [backend/db/schema.sql](./backend/db/schema.sql).
 
-- Extensions: `vector`, `pg_trgm`
-- Tables: `documents`, `chunks`, `faculty`, `programmes`, `conversations`, `messages`, `feedback`
-- `chunks.embedding` = **vector(384)** (matches local BGE)
-- RLS enabled on all tables with **no** anon policies (Data API locked down; FastAPI uses the DB connection string)
+The schema enables `vector` and `pg_trgm`, then creates `documents`, `chunks`, `faculty`, `programmes`, `conversations`, `messages`, and `feedback`.
 
-## DATABASE_URL
+`chunks.embedding` is `vector(384)`, which matches `BAAI/bge-small-en-v1.5`. Do not point a 768-dimensional Gemini index at this column. Run `prepare-gemini-index` only when you intend to switch the whole index.
 
-1. Open [Database settings](https://supabase.com/dashboard/project/lunscpeozscmgpwcprgs/settings/database)
-2. Copy the **URI** (or reset database password if you never set one)
-3. Put it in local `.env`:
+Row Level Security is enabled and there are no anon policies. The Data API is locked. FastAPI connects with `DATABASE_URL`.
 
-```env
-DATABASE_URL=postgresql://postgres:[YOUR-PASSWORD]@db.lunscpeozscmgpwcprgs.supabase.co:5432/postgres
-```
+## Connection string
 
-For serverless / HF later, the **Transaction pooler** URI (port `6543`) is often better:
+In the Supabase dashboard, open **Project Settings → Database** and copy a URI.
+
+| Client | Which URI |
+| --- | --- |
+| Cloud Run | Transaction pooler, port `6543` |
+| A machine that can reach the pooler | Session pooler, port `5432` |
+| A one-off `pg_restore` | Direct host, port `5432` |
+
+Cloud Run should not use the direct host. Put the chosen URI in `.env`:
 
 ```env
-DATABASE_URL=postgresql://postgres.lunscpeozscmgpwcprgs:[YOUR-PASSWORD]@aws-0-ap-south-1.pooler.supabase.com:6543/postgres
+DATABASE_URL=postgresql://postgres.PROJECT_REF:PASSWORD@POOLER_HOST:6543/postgres?sslmode=require
 ```
 
-Use SSL if required by the URI (`?sslmode=require`).
+Do not commit `.env` or the password.
 
-## Load your local data into Supabase
+## Load data
 
-Your embeddings live in local Docker Postgres today. After `DATABASE_URL` points at Supabase, either:
+Build the index with the ingestion commands in the [README](./README.md), with `DATABASE_URL` pointed at Supabase.
 
-### Option A — `pg_dump` / `pg_restore` (recommended)
+To copy an existing local Docker database instead:
 
 ```bat
- Rem Export from local Docker
 docker exec srmap-rag-db pg_dump -U srmap -d srmap_rag -Fc -f /tmp/srmap.dump
 docker cp srmap-rag-db:/tmp/srmap.dump .\srmap.dump
-
- Rem Import (set PGPASSWORD to your Supabase DB password)
-set PGPASSWORD=YOUR_PASSWORD
-pg_restore -h db.lunscpeozscmgpwcprgs.supabase.co -U postgres -d postgres --clean --if-exists --no-owner --no-acl .\srmap.dump
 ```
 
-If `pg_restore` complains about extensions/owners, prefer dumping **data only** for the RAG tables:
+Restore with `pg_restore` against the direct host, using `--no-owner --no-acl`. Do not commit the dump. Large restores should use the direct connection, not the pooler.
 
-```bat
-docker exec srmap-rag-db pg_dump -U srmap -d srmap_rag -a --column-inserts ^
-  -t documents -t chunks -t faculty -t programmes -t conversations -t messages -t feedback ^
-  -f /tmp/srmap_data.sql
-docker cp srmap-rag-db:/tmp/srmap_data.sql .\srmap_data.sql
-```
-
-Then run that SQL against Supabase (psql or SQL editor). Large dumps may need the direct connection (port 5432), not the pooler.
-
-### Option B — re-persist + re-embed
-
-Point `.env` at Supabase and re-run `persist` + `embed-worker` (slow; only if dump is painful).
+If the restore fights extensions or owners, dump data only for `documents`, `chunks`, `faculty`, `programmes`, `conversations`, `messages`, and `feedback`, then run that SQL in the Supabase SQL editor.
 
 ## Verify
 
 ```sql
 SELECT COUNT(*) FROM documents;
 SELECT COUNT(*) FROM chunks WHERE embed_status = 'completed';
-SELECT format_type(a.atttypid, a.atttypmod)
-FROM pg_attribute a
-JOIN pg_class c ON a.attrelid = c.oid
-WHERE c.relname = 'chunks' AND a.attname = 'embedding';
 ```
 
-Expect ~3635 documents, ~21466 completed chunks, type `vector(384)`.
+The public index is about 3,635 documents and 21,466 completed chunks. The embedding column type is `vector(384)`.
 
-## Next
+Confirm from the API:
 
-Once data is loaded and local/API chat works against Supabase, proceed to Hugging Face Spaces (`DEPLOY_HF.md`) using the same `DATABASE_URL` as a Space secret.
+```text
+GET /health/ready
+```
+
+`status` is `ok` when the database accepts `SELECT 1`. Document and chunk counts on `/health` refresh at most once per two minutes.

@@ -15,6 +15,16 @@ BUSY_MESSAGE = (
     "Please try again in a few seconds."
 )
 
+
+class ModelError(Exception):
+    """Chat model failed. `category` is safe to log and to send on an SSE error event."""
+
+    def __init__(self, category: str, public_message: str, *, status_code: int | None = None) -> None:
+        super().__init__(category)
+        self.category = category
+        self.public_message = public_message
+        self.status_code = status_code
+
 SYSTEM_PROMPT = """You are the official information assistant for SRM University-AP (srmap.edu.in).
 
 Rules:
@@ -48,9 +58,13 @@ def is_greeting(question: str) -> bool:
     return q in _GREETINGS
 
 
-def _is_retryable_gemini(exc: BaseException) -> bool:
+def _gemini_status(exc: BaseException) -> int | None:
     code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
-    if code in (429, 503):
+    return code if isinstance(code, int) else None
+
+
+def _is_retryable_gemini(exc: BaseException) -> bool:
+    if _gemini_status(exc) in (429, 503):
         return True
     msg = str(exc).lower()
     return any(
@@ -59,12 +73,36 @@ def _is_retryable_gemini(exc: BaseException) -> bool:
     )
 
 
+def _model_error(exc: BaseException) -> ModelError:
+    from app.observe import log_event
+
+    status = _gemini_status(exc)
+    category = "model_unavailable" if _is_retryable_gemini(exc) else "generation_failed"
+    log_event(
+        "gemini_error",
+        labels={
+            "route": "generate",
+            "status_class": "5xx",
+            "error_category": category,
+            "intent": "unknown",
+        },
+        error_type=type(exc).__name__,
+        status_code=status,
+    )
+    return ModelError(category, BUSY_MESSAGE, status_code=status)
+
+
 def _gemini_stream(client: Any, model: str, contents: str, config: dict[str, Any]) -> Iterator[str]:
-    """Stream with short retries on 429/503; yield a friendly message if still failing."""
+    """Stream with short retries on 429/503. Raises ModelError if still failing.
+
+    A retry happens only when nothing has been yielded yet. After the first token,
+    the caller owns the partial answer and receives the error.
+    """
     delays = (0.0, 1.5, 3.0)
     for attempt, delay in enumerate(delays):
         if delay:
             time.sleep(delay)
+        sent = False
         try:
             for chunk in client.models.generate_content_stream(
                 model=model,
@@ -72,14 +110,19 @@ def _gemini_stream(client: Any, model: str, contents: str, config: dict[str, Any
                 config=config,
             ):
                 if chunk.text:
+                    sent = True
                     yield chunk.text
             return
         except Exception as exc:  # noqa: BLE001
-            if not _is_retryable_gemini(exc) or attempt >= len(delays) - 1:
-                logger.warning("Gemini stream failed: %s", exc)
-                yield BUSY_MESSAGE
-                return
-            logger.info("Gemini busy (%s); retry %s/%s", exc, attempt + 1, len(delays) - 1)
+            retry = _is_retryable_gemini(exc) and not sent and attempt < len(delays) - 1
+            if not retry:
+                raise _model_error(exc) from exc
+            logger.info(
+                "gemini_retry error_type=%s status_code=%s attempt=%s",
+                type(exc).__name__,
+                _gemini_status(exc),
+                attempt + 1,
+            )
 
 
 def _gemini_once(client: Any, model: str, contents: str, config: dict[str, Any]) -> str:
@@ -95,11 +138,16 @@ def _gemini_once(client: Any, model: str, contents: str, config: dict[str, Any])
             )
             return (resp.text or "").strip()
         except Exception as exc:  # noqa: BLE001
-            if not _is_retryable_gemini(exc) or attempt >= len(delays) - 1:
-                logger.warning("Gemini generate failed: %s", exc)
-                return BUSY_MESSAGE
-            logger.info("Gemini busy (%s); retry %s/%s", exc, attempt + 1, len(delays) - 1)
-    return BUSY_MESSAGE
+            retry = _is_retryable_gemini(exc) and attempt < len(delays) - 1
+            if not retry:
+                raise _model_error(exc) from exc
+            logger.info(
+                "gemini_retry error_type=%s status_code=%s attempt=%s",
+                type(exc).__name__,
+                _gemini_status(exc),
+                attempt + 1,
+            )
+    raise ModelError("generation_failed", BUSY_MESSAGE)
 
 
 def generate_answer(

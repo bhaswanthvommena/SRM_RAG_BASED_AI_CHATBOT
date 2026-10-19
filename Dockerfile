@@ -45,6 +45,6 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 EXPOSE 7860
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-  CMD curl -fsS "http://127.0.0.1:${PORT}/health" || exit 1
+  CMD curl -fsS "http://127.0.0.1:${PORT}/health/live" || exit 1
 
 CMD ["sh", "-c", "python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
