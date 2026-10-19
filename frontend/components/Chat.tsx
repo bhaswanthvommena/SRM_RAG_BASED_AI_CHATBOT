@@ -269,13 +269,16 @@ export function Chat() {
         onDone: () => {},
       });
     } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
       const msg = err instanceof Error ? err.message : "Something went wrong";
       const streamed = err instanceof ChatStreamError;
+      const reference = streamed && err.requestId ? ` Reference: ${err.requestId}` : "";
       setMessages((prev) =>
         prev.map((m) => {
           if (m.id !== assistantId) return m;
           if (streamed) {
-            return { ...m, content: m.content ? `${m.content}\n\n${msg}` : msg };
+            const notice = `${msg}${reference}`;
+            return { ...m, content: m.content ? `${m.content}\n\n${notice}` : notice };
           }
           return {
             ...m,

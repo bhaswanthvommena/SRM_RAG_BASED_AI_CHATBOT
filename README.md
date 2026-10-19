@@ -4,6 +4,8 @@ A standalone chat app that answers questions about [SRM University-AP](https://w
 
 **Live demo:** [srm-rag-based-ai-chatbot.vercel.app](https://srm-rag-based-ai-chatbot.vercel.app/)
 
+This is a portfolio prototype for learning retrieval-augmented generation and full-stack deployment. It is not an official SRM University-AP application, and it has no active users. I used AI-assisted coding tools, including Cursor, OpenAI Codex, and Claude Code, while designing and implementing it, and I reviewed the architecture and the behavior the demo relies on.
+
 Ask about admissions, tuition, scholarships, programmes, faculty, hostels, or placements. Numbered citations open the official source.
 
 ## What it does
@@ -176,3 +178,5 @@ Cloud Run is deployed with concurrency 4, at most 2 instances, and a 120 second 
 ## Limits
 
 Answers are only as current as the last crawl. Fees, deadlines, and seat rules should be checked on srmap.edu.in. The assistant says when it cannot find a source, and it is not a substitute for the admissions office.
+
+Rate limits are enforced inside each Cloud Run instance, not across the whole service. There are no published accuracy or latency benchmarks. The index is a snapshot of public university pages, not a live feed.

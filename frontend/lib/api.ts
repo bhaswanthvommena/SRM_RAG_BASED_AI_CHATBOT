@@ -82,7 +82,7 @@ export async function streamChat(opts: {
 
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => "");
-    throw new Error(text || `Chat failed (${res.status})`);
+    throw errorFromHttp(res.status, text);
   }
 
   const reader = res.body.getReader();
@@ -105,21 +105,67 @@ export async function streamChat(opts: {
       if (!line.startsWith("data:")) continue;
       const raw = line.slice(5).trim();
       if (!raw) continue;
-      try {
-        const data = JSON.parse(raw);
-        if (eventName === "meta") opts.onMeta(data);
-        else if (eventName === "token") opts.onToken(data.text || "");
-        else if (eventName === "error") {
-          throw new ChatStreamError(
-            data.message || "Something went wrong.",
-            data.request_id,
-            data.error
-          );
-        } else if (eventName === "done") opts.onDone();
-      } catch {
-        // ignore malformed chunks
-      }
+      applySseEvent(eventName, raw, opts);
       eventName = "message";
     }
   }
+}
+
+/** Parse one SSE data line. Malformed JSON is ignored. Backend error events propagate. */
+export function applySseEvent(
+  eventName: string,
+  raw: string,
+  opts: {
+    onMeta: (meta: {
+      conversation_id: string;
+      request_id?: string;
+      intent?: string;
+      citations: { index: number; chunk_id: number; url: string }[];
+    }) => void;
+    onToken: (text: string) => void;
+    onDone: () => void;
+  }
+) {
+  let data: {
+    text?: string;
+    message?: string;
+    request_id?: string;
+    error?: string;
+    conversation_id?: string;
+    intent?: string;
+    citations?: { index: number; chunk_id: number; url: string }[];
+  };
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  if (eventName === "meta") {
+    opts.onMeta({
+      conversation_id: data.conversation_id || "",
+      request_id: data.request_id,
+      intent: data.intent,
+      citations: data.citations || [],
+    });
+  } else if (eventName === "token") opts.onToken(data.text || "");
+  else if (eventName === "error") {
+    throw new ChatStreamError(
+      data.message || "Something went wrong.",
+      data.request_id,
+      data.error
+    );
+  } else if (eventName === "done") opts.onDone();
+}
+
+function errorFromHttp(status: number, text: string): ChatStreamError {
+  let message = `Chat failed (${status})`;
+  let requestId: string | undefined;
+  try {
+    const body = JSON.parse(text) as { detail?: unknown; request_id?: unknown };
+    if (typeof body.detail === "string" && body.detail.trim()) message = body.detail;
+    if (typeof body.request_id === "string") requestId = body.request_id;
+  } catch {
+    if (text && text.length <= 200 && !text.includes("<")) message = text;
+  }
+  return new ChatStreamError(message, requestId);
 }
